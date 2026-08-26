@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Buscador de contactos - Apollo</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Buscador de contacto ideal</h1>
+    <p class="subtitle">
+      Ingresa el nombre de una empresa y te mostramos el mejor contacto para llamar
+      (ventas, trade marketing, mercadeo, marketing o category manager).
+    </p>
+
+    <form id="search-form">
+      <input
+        type="text"
+        id="company-input"
+        name="company"
+        placeholder="Ej: Nestlé, Alpina, Grupo Éxito..."
+        autocomplete="off"
+        required
+      />
+      <button type="submit" id="search-button">Buscar contacto</button>
+    </form>
+
+    <div id="result-area" aria-live="polite"></div>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

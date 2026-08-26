@@ -93,7 +93,8 @@ app.post('/api/search', async (req, res) => {
     }
 
     // 2. Buscar personas de esa organización con los cargos objetivo
-    const peopleData = await apolloFetch('/mixed_people/search', {
+    // (mixed_people/search quedó deprecado para llamadas de API; Apollo pide usar api_search)
+    const peopleData = await apolloFetch('/mixed_people/api_search', {
       organization_ids: [organization.id],
       person_titles: TARGET_TITLES,
       page: 1,

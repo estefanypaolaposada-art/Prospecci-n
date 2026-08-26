@@ -38,6 +38,17 @@ function scoreContact(person) {
   return score;
 }
 
+const APOLLO_DEBUG = process.env.APOLLO_DEBUG === 'true';
+
+function debugLog(label, data) {
+  if (!APOLLO_DEBUG) return;
+  console.log(`[apollo-debug] ${label}:`, JSON.stringify(data, null, 2));
+}
+
+function contactName(person) {
+  return person.name || [person.first_name, person.last_name].filter(Boolean).join(' ') || null;
+}
+
 async function apolloFetch(endpointPath, body) {
   const response = await fetch(`${APOLLO_BASE_URL}${endpointPath}`, {
     method: 'POST',
@@ -101,6 +112,8 @@ app.post('/api/search', async (req, res) => {
       per_page: 25,
     });
 
+    debugLog('respuesta cruda de /mixed_people/api_search', peopleData);
+
     const people = peopleData.people || [];
     const ranked = people
       .map((person) => ({ person, score: scoreContact(person) }))
@@ -115,15 +128,20 @@ app.post('/api/search', async (req, res) => {
     }
 
     const best = ranked[0].person;
+    debugLog('mejor contacto encontrado en la búsqueda', best);
 
     // 3. Enriquecer el mejor contacto para revelar email/teléfono (consume créditos de Apollo)
     let enriched = best;
     try {
       const matchData = await apolloFetch('/people/match', {
         id: best.id,
+        first_name: best.first_name,
+        last_name: best.last_name,
+        organization_name: organization.name,
         reveal_personal_emails: true,
         reveal_phone_number: true,
       });
+      debugLog('respuesta cruda de /people/match', matchData);
       if (matchData.person) enriched = matchData.person;
     } catch (enrichErr) {
       console.warn('No se pudo enriquecer el contacto, se usan los datos de la búsqueda:', enrichErr.message);
@@ -137,18 +155,21 @@ app.post('/api/search', async (req, res) => {
     const email =
       enriched.email && !enriched.email.includes('not_unlocked') ? enriched.email : null;
 
+    const contact = {
+      name: contactName(enriched),
+      title: enriched.title || null,
+      email,
+      phone,
+      linkedin_url: enriched.linkedin_url || null,
+    };
+    debugLog('contacto final devuelto al frontend', contact);
+
     return res.json({
       organization: {
         name: organization.name,
         website_url: organization.website_url,
       },
-      contact: {
-        name: enriched.name || null,
-        title: enriched.title || null,
-        email,
-        phone,
-        linkedin_url: enriched.linkedin_url || null,
-      },
+      contact,
     });
   } catch (err) {
     console.error('Error consultando Apollo:', err.message);

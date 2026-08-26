@@ -10,7 +10,7 @@ manager** (nombre, cargo, teléfono y/o email).
 1. El frontend (`public/`) envía el nombre de la empresa a `POST /api/search`.
 2. El backend (`server.js`) busca la organización en Apollo (`/organizations/search`).
 3. Busca personas de esa organización cuyo cargo coincida con ventas, trade
-   marketing, mercadeo, marketing o category manager (`/mixed_people/search`).
+   marketing, mercadeo, marketing o category manager (`/mixed_people/api_search`).
 4. Ordena los resultados por relevancia de cargo y seniority (director/gerente/etc.)
    y enriquece al mejor candidato (`/people/match`) para revelar email y teléfono.
 5. Devuelve nombre, cargo, teléfono y email al frontend.
@@ -67,3 +67,14 @@ panel del servicio, con la clave `APOLLO_API_KEY`.
 - Los cargos objetivo se buscan en español e inglés (`ventas`, `sales`,
   `marketing`, `mercadeo`, `trade marketing`, `category manager`) y Apollo
   hace un match flexible sobre el título del contacto.
+
+## Depurar respuestas de Apollo
+
+Si el nombre, teléfono o email salen como "No disponible", pon
+`APOLLO_DEBUG=true` en tu `.env` (o como variable de entorno en producción)
+y reinicia el servidor. Cada búsqueda imprimirá en los logs del servidor la
+respuesta cruda de `/mixed_people/api_search` y de `/people/match`, para ver
+si Apollo está devolviendo los datos vacíos, enmascarados (por ejemplo
+`email_not_unlocked@domain.com`) o si la llamada de enriquecimiento está
+fallando. Vuelve a poner `APOLLO_DEBUG=false` cuando termines, ya que estos
+logs pueden incluir datos personales de los contactos.

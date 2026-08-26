@@ -46,7 +46,12 @@ function debugLog(label, data) {
 }
 
 function contactName(person) {
-  return person.name || [person.first_name, person.last_name].filter(Boolean).join(' ') || null;
+  // Cuando Apollo no tiene el apellido confirmado, a veces devuelve el campo "name"
+  // como un placeholder tipo "Nombre | Cargo" en vez del nombre real; nos quedamos
+  // solo con la parte del nombre en ese caso.
+  const cleanedName = (person.name || '').split('|')[0].trim();
+  const composed = [person.first_name, person.last_name].filter(Boolean).join(' ');
+  return composed || cleanedName || person.name || null;
 }
 
 // Cuántos contactos como máximo devolvemos (cada uno consume un enriquecimiento/crédito de Apollo)
@@ -219,6 +224,9 @@ app.post('/api/search', async (req, res) => {
         });
         debugLog(`respuesta cruda de /people/match para ${candidate.id}`, matchData);
         if (matchData.person) enriched = matchData.person;
+        console.log(
+          `[apollo] match ${candidate.id}: phone_numbers en respuesta síncrona = ${enriched.phone_numbers?.length ?? 0}`
+        );
       } catch (enrichErr) {
         console.warn(
           `No se pudo enriquecer el contacto ${candidate.id}, se usan los datos de la búsqueda:`,
@@ -275,6 +283,10 @@ app.post('/api/apollo-webhook', (req, res) => {
   debugLog('webhook de Apollo recibido (revelación de teléfono)', req.body);
 
   const entries = extractPhoneEntries(req.body);
+  // Log siempre activo (sin datos personales) para confirmar que Apollo sí está
+  // llamando a este webhook, aunque APOLLO_DEBUG esté apagado.
+  console.log(`[apollo] webhook recibido: ${entries.length} contacto(s) con teléfono, ids=[${entries.map((e) => e.id).join(', ')}]`);
+
   for (const entry of entries) {
     const phone = entry.phone_numbers[0]?.sanitized_number || entry.phone_numbers[0]?.raw_number || null;
     const status = phone ? 'ready' : 'unavailable';
@@ -283,7 +295,7 @@ app.post('/api/apollo-webhook', (req, res) => {
   }
 
   if (!entries.length) {
-    debugLog('no se encontraron entradas con id + phone_numbers en el payload del webhook', null);
+    console.log('[apollo] el payload del webhook no tenía ningún objeto {id, phone_numbers}; activa APOLLO_DEBUG para ver el payload completo');
   }
 
   res.status(200).json({ received: true });

@@ -87,18 +87,27 @@ panel del servicio, con la clave `APOLLO_API_KEY`.
      cargo, email). Si el teléfono aún no llegó, cada contacto trae
      `phoneStatus: "pending"` y el frontend muestra "Cargando teléfono..."
      con una animación.
-  2. El navegador consulta `GET /api/phone/:personId` cada 3 segundos, hasta
-     por 60 segundos, para cada contacto pendiente.
+  2. El navegador consulta `GET /api/phone/:personId` cada 5 segundos, hasta
+     por 5 minutos, para cada contacto pendiente (Apollo documenta que la
+     entrega puede tardar "varios minutos").
   3. Cuando Apollo llama a `POST /api/apollo-webhook` con el teléfono, el
      servidor lo guarda en memoria (`Map` en `server.js`, se pierde si el
      servidor se reinicia) y la próxima consulta de polling lo devuelve; la
      tarjeta se actualiza sola, sin recargar la página.
-  4. Si pasan los 60 segundos sin respuesta (o Apollo confirma que no hay
+  4. Si pasan los 5 minutos sin respuesta (o Apollo confirma que no hay
      teléfono), la tarjeta cambia a "No disponible".
   Como Apollo no publica un esquema fijo para el payload del webhook, el
   backend lo recorre buscando cualquier objeto con forma
-  `{ id, phone_numbers: [...] }`; con `APOLLO_DEBUG=true` puedes ver el
-  payload real en los logs si algún caso no calza con ese patrón.
+  `{ id, phone_numbers: [...] }`. Para confirmar que todo está funcionando,
+  el servidor imprime **siempre** (sin necesidad de `APOLLO_DEBUG`) dos
+  líneas de log sin datos personales: cuántos `phone_numbers` trae la
+  respuesta síncrona de `/people/match`, y cuántos contactos llegaron en
+  cada llamada a `/api/apollo-webhook`. Si ves "0 contacto(s)" en el segundo
+  log de forma consistente, Apollo no está logrando llamar a tu
+  `webhook_url` (revisa que la URL pública de tu despliegue sea alcanzable
+  desde internet); si ves contactos ahí pero el número nunca se muestra,
+  activa `APOLLO_DEBUG=true` para ver el payload completo y ajustar el
+  parser al formato real.
 
 ## Depurar respuestas de Apollo
 

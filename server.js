@@ -52,15 +52,24 @@ function contactName(person) {
 // Cuántos contactos como máximo devolvemos (cada uno consume un enriquecimiento/crédito de Apollo)
 const MAX_RESULTS = 8;
 
-async function apolloFetch(endpointPath, body) {
-  const response = await fetch(`${APOLLO_BASE_URL}${endpointPath}`, {
+// endpointPath: ruta de Apollo. query: parámetros que van en la URL (Apollo los exige así
+// para /people/match, incluyendo los flags reveal_personal_emails/reveal_phone_number).
+// body: cuerpo JSON, usado por los endpoints de búsqueda (organizations/search, mixed_people/api_search).
+async function apolloFetch(endpointPath, { query = {}, body } = {}) {
+  const url = new URL(`${APOLLO_BASE_URL}${endpointPath}`);
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null || value === '') continue;
+    url.searchParams.set(key, value);
+  }
+
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Cache-Control': 'no-cache',
       'X-Api-Key': APOLLO_API_KEY,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(body || {}),
   });
 
   const data = await response.json().catch(() => ({}));
@@ -76,6 +85,9 @@ async function apolloFetch(endpointPath, body) {
 }
 
 const app = express();
+// Necesario para que req.protocol refleje "https" cuando la app corre detrás de un proxy
+// (Render, Railway, etc.), ya que Apollo exige que webhook_url sea una URL https pública.
+app.set('trust proxy', true);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -94,9 +106,11 @@ app.post('/api/search', async (req, res) => {
   try {
     // 1. Buscar la organización por nombre
     const orgData = await apolloFetch('/organizations/search', {
-      q_organization_name: companyName,
-      page: 1,
-      per_page: 1,
+      body: {
+        q_organization_name: companyName,
+        page: 1,
+        per_page: 1,
+      },
     });
 
     const organization = orgData.organizations?.[0];
@@ -109,10 +123,12 @@ app.post('/api/search', async (req, res) => {
     // 2. Buscar personas de esa organización con los cargos objetivo
     // (mixed_people/search quedó deprecado para llamadas de API; Apollo pide usar api_search)
     const peopleData = await apolloFetch('/mixed_people/api_search', {
-      organization_ids: [organization.id],
-      person_titles: TARGET_TITLES,
-      page: 1,
-      per_page: 50,
+      body: {
+        organization_ids: [organization.id],
+        person_titles: TARGET_TITLES,
+        page: 1,
+        per_page: 50,
+      },
     });
 
     debugLog('respuesta cruda de /mixed_people/api_search', peopleData);
@@ -132,18 +148,26 @@ app.post('/api/search', async (req, res) => {
 
     const candidates = ranked.slice(0, MAX_RESULTS).map((entry) => entry.person);
 
+    // Apollo exige los parámetros de /people/match en la URL (query string), no en el body,
+    // y para revelar el teléfono además exige una webhook_url pública donde lo entrega de forma
+    // asíncrona (puede tardar); por eso el teléfono normalmente no viene en esta misma respuesta.
+    const webhookUrl = `${req.protocol}://${req.get('host')}/api/apollo-webhook`;
+
     // 3. Enriquecer cada candidato para revelar email/teléfono (consume créditos de Apollo por cada uno)
     const contacts = [];
     for (const candidate of candidates) {
       let enriched = candidate;
       try {
         const matchData = await apolloFetch('/people/match', {
-          id: candidate.id,
-          first_name: candidate.first_name,
-          last_name: candidate.last_name,
-          organization_name: organization.name,
-          reveal_personal_emails: true,
-          reveal_phone_number: true,
+          query: {
+            id: candidate.id,
+            first_name: candidate.first_name,
+            last_name: candidate.last_name,
+            organization_name: organization.name,
+            reveal_personal_emails: true,
+            reveal_phone_number: true,
+            webhook_url: webhookUrl,
+          },
         });
         debugLog(`respuesta cruda de /people/match para ${candidate.id}`, matchData);
         if (matchData.person) enriched = matchData.person;
@@ -185,6 +209,15 @@ app.post('/api/search', async (req, res) => {
     const status = err.status && err.status < 500 ? err.status : 502;
     return res.status(status).json({ error: `Error al consultar Apollo.io: ${err.message}` });
   }
+});
+
+// Apollo entrega los teléfonos revelados aquí de forma asíncrona (ver comentario junto a
+// webhook_url más arriba). Por ahora solo lo registramos en el log de depuración; si en el
+// futuro se quiere mostrar el teléfono sin tener que repetir la búsqueda, este es el lugar
+// donde habría que guardarlo (ej. en una base de datos) y exponerlo al frontend.
+app.post('/api/apollo-webhook', (req, res) => {
+  debugLog('webhook de Apollo recibido (revelación de teléfono)', req.body);
+  res.status(200).json({ received: true });
 });
 
 const PORT = process.env.PORT || 3000;

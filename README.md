@@ -69,15 +69,27 @@ panel del servicio, con la clave `APOLLO_API_KEY`.
   solo se enriquecía uno). Baja esa constante en `server.js` si quieres
   ahorrar créditos.
 - No todos los contactos tienen teléfono, email o apellido disponibles en la
-  base de Apollo; en ese caso la app muestra "No disponible" en ese campo. Si
-  ves esto de forma consistente en todos los contactos, puede deberse a que
-  tu plan/API key de Apollo no tiene habilitada la opción de revelar emails
-  personales o teléfonos móviles (revísalo en Apollo, en **Settings → API**
-  o con tu administrador de cuenta), o a que se agotaron los créditos de
-  enriquecimiento del plan.
+  base de Apollo; en ese caso la app muestra "No disponible" en ese campo.
 - Los cargos objetivo se buscan en español e inglés (`ventas`, `sales`,
   `marketing`, `mercadeo`, `trade marketing`, `category manager`) y Apollo
   hace un match flexible sobre el título del contacto.
+- **`/people/match` recibe sus parámetros por la URL (query string), no por
+  el body.** Apollo lo documenta así (ver su ejemplo de `curl`); si se envían
+  por el body, Apollo puede no interpretarlos correctamente. Este es el fix
+  aplicado para que `reveal_personal_emails` y `reveal_phone_number` sí
+  surtan efecto.
+- **El teléfono se revela de forma asíncrona.** Apollo exige un `webhook_url`
+  público para `reveal_phone_number=true`, y entrega el teléfono en una
+  llamada aparte a ese webhook (puede tardar desde segundos hasta varios
+  minutos), no en la respuesta del `POST /api/search`. Por eso, aunque el
+  email debería aparecer de inmediato una vez arreglado el punto anterior, el
+  teléfono seguirá saliendo como "No disponible" en la mayoría de los casos:
+  la app ya expone `POST /api/apollo-webhook` para recibir esa entrega y
+  registrarla en los logs de depuración (`APOLLO_DEBUG=true`), pero **todavía
+  no la muestra en la interfaz** porque eso requiere guardar el dato en algún
+  lado (base de datos o caché) y que el frontend lo consulte después. Si
+  quieres que el teléfono se muestre automáticamente cuando llegue, dilo y
+  se implementa esa segunda parte.
 
 ## Depurar respuestas de Apollo
 

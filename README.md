@@ -78,18 +78,27 @@ panel del servicio, con la clave `APOLLO_API_KEY`.
   por el body, Apollo puede no interpretarlos correctamente. Este es el fix
   aplicado para que `reveal_personal_emails` y `reveal_phone_number` sí
   surtan efecto.
-- **El teléfono se revela de forma asíncrona.** Apollo exige un `webhook_url`
-  público para `reveal_phone_number=true`, y entrega el teléfono en una
-  llamada aparte a ese webhook (puede tardar desde segundos hasta varios
-  minutos), no en la respuesta del `POST /api/search`. Por eso, aunque el
-  email debería aparecer de inmediato una vez arreglado el punto anterior, el
-  teléfono seguirá saliendo como "No disponible" en la mayoría de los casos:
-  la app ya expone `POST /api/apollo-webhook` para recibir esa entrega y
-  registrarla en los logs de depuración (`APOLLO_DEBUG=true`), pero **todavía
-  no la muestra en la interfaz** porque eso requiere guardar el dato en algún
-  lado (base de datos o caché) y que el frontend lo consulte después. Si
-  quieres que el teléfono se muestre automáticamente cuando llegue, dilo y
-  se implementa esa segunda parte.
+- **El teléfono se revela de forma asíncrona, y la app ya lo maneja
+  automáticamente.** Apollo exige un `webhook_url` público para
+  `reveal_phone_number=true`, y entrega el teléfono en una llamada aparte a
+  ese webhook (puede tardar desde segundos hasta varios minutos), no en la
+  respuesta del `POST /api/search`. El flujo completo es:
+  1. `POST /api/search` responde de inmediato con lo que ya tiene (nombre,
+     cargo, email). Si el teléfono aún no llegó, cada contacto trae
+     `phoneStatus: "pending"` y el frontend muestra "Cargando teléfono..."
+     con una animación.
+  2. El navegador consulta `GET /api/phone/:personId` cada 3 segundos, hasta
+     por 60 segundos, para cada contacto pendiente.
+  3. Cuando Apollo llama a `POST /api/apollo-webhook` con el teléfono, el
+     servidor lo guarda en memoria (`Map` en `server.js`, se pierde si el
+     servidor se reinicia) y la próxima consulta de polling lo devuelve; la
+     tarjeta se actualiza sola, sin recargar la página.
+  4. Si pasan los 60 segundos sin respuesta (o Apollo confirma que no hay
+     teléfono), la tarjeta cambia a "No disponible".
+  Como Apollo no publica un esquema fijo para el payload del webhook, el
+  backend lo recorre buscando cualquier objeto con forma
+  `{ id, phone_numbers: [...] }`; con `APOLLO_DEBUG=true` puedes ver el
+  payload real en los logs si algún caso no calza con ese patrón.
 
 ## Depurar respuestas de Apollo
 

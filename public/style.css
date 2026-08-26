@@ -134,6 +134,18 @@ button:hover:not(:disabled) {
   font-style: italic;
 }
 
+.contact-field .value.loading-phone {
+  color: var(--accent);
+  font-weight: 400;
+  font-style: italic;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
 .error-box {
   background: rgba(248, 113, 113, 0.1);
   border: 1px solid var(--error);

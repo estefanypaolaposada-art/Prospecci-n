@@ -3,15 +3,50 @@ const input = document.getElementById('company-input');
 const button = document.getElementById('search-button');
 const resultArea = document.getElementById('result-area');
 
+const PHONE_POLL_INTERVAL_MS = 3000;
+const PHONE_POLL_MAX_ATTEMPTS = 20; // ~60s de espera por teléfono antes de rendirse
+
+let activePhonePolls = [];
+
+function stopAllPhonePolls() {
+  activePhonePolls.forEach((intervalId) => clearInterval(intervalId));
+  activePhonePolls = [];
+}
+
 function renderLoading() {
+  stopAllPhonePolls();
   resultArea.innerHTML = '<p class="loading">Buscando en Apollo.io...</p>';
 }
 
 function renderError(message) {
+  stopAllPhonePolls();
   resultArea.innerHTML = `<div class="error-box">${escapeHtml(message)}</div>`;
 }
 
+function phoneFieldHtml(contact) {
+  if (contact.phoneStatus === 'pending') {
+    return `
+      <div class="contact-field">
+        <span class="label">Teléfono</span>
+        <span class="value loading-phone" id="phone-value-${escapeHtml(contact.personId)}">Cargando teléfono...</span>
+      </div>
+    `;
+  }
+
+  const value = contact.phone;
+  return `
+    <div class="contact-field">
+      <span class="label">Teléfono</span>
+      <span class="value ${value ? '' : 'missing'}" id="phone-value-${escapeHtml(contact.personId)}">
+        ${value ? escapeHtml(value) : 'No disponible'}
+      </span>
+    </div>
+  `;
+}
+
 function renderResult(data) {
+  stopAllPhonePolls();
+
   const { organization, contacts } = data;
 
   const field = (label, value) =>
@@ -36,7 +71,7 @@ function renderResult(data) {
         <div class="card">
           ${field('Nombre', contact.name)}
           ${field('Cargo', contact.title)}
-          ${field('Teléfono', contact.phone)}
+          ${phoneFieldHtml(contact)}
           ${field('Email', contact.email)}
           ${contact.linkedin_url ? field('LinkedIn', contact.linkedin_url) : ''}
         </div>
@@ -48,6 +83,56 @@ function renderResult(data) {
     <div class="card org-card">${orgHeader}</div>
     ${contactCards}
   `;
+
+  contacts
+    .filter((contact) => contact.phoneStatus === 'pending' && contact.personId)
+    .forEach((contact) => pollPhone(contact.personId));
+}
+
+function pollPhone(personId) {
+  let attempts = 0;
+
+  const intervalId = setInterval(async () => {
+    attempts += 1;
+    const valueEl = document.getElementById(`phone-value-${personId}`);
+
+    // La tarjeta ya no está en pantalla (se hizo otra búsqueda); no seguir sondeando.
+    if (!valueEl) {
+      clearInterval(intervalId);
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/phone/${encodeURIComponent(personId)}`);
+      const data = await response.json();
+
+      if (data.status === 'ready' && data.phone) {
+        valueEl.textContent = data.phone;
+        valueEl.classList.remove('loading-phone', 'missing');
+        clearInterval(intervalId);
+        return;
+      }
+
+      if (data.status === 'unavailable') {
+        valueEl.textContent = 'No disponible';
+        valueEl.classList.remove('loading-phone');
+        valueEl.classList.add('missing');
+        clearInterval(intervalId);
+        return;
+      }
+    } catch (err) {
+      // Error de red puntual: seguimos intentando hasta agotar los intentos.
+    }
+
+    if (attempts >= PHONE_POLL_MAX_ATTEMPTS) {
+      valueEl.textContent = 'No disponible';
+      valueEl.classList.remove('loading-phone');
+      valueEl.classList.add('missing');
+      clearInterval(intervalId);
+    }
+  }, PHONE_POLL_INTERVAL_MS);
+
+  activePhonePolls.push(intervalId);
 }
 
 function escapeHtml(str) {

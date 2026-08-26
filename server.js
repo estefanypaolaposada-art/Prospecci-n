@@ -52,6 +52,54 @@ function contactName(person) {
 // Cuántos contactos como máximo devolvemos (cada uno consume un enriquecimiento/crédito de Apollo)
 const MAX_RESULTS = 8;
 
+// Guarda en memoria el estado del teléfono de cada persona (Apollo lo entrega de forma
+// asíncrona por webhook). id de Apollo -> { status: 'pending'|'ready'|'unavailable', phone, requestedAt }
+// Se pierde si el servidor se reinicia; es suficiente para que el frontend haga polling
+// mientras la búsqueda sigue "viva" en el navegador del usuario.
+const phoneRequests = new Map();
+const PHONE_REQUEST_TTL_MS = 10 * 60 * 1000; // 10 minutos
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, entry] of phoneRequests) {
+    if (now - entry.requestedAt > PHONE_REQUEST_TTL_MS) phoneRequests.delete(id);
+  }
+}, 60 * 1000).unref();
+
+function markPhonePending(personId) {
+  const existing = phoneRequests.get(personId);
+  if (existing?.status === 'ready') return existing;
+  const entry = { status: 'pending', phone: null, requestedAt: Date.now() };
+  phoneRequests.set(personId, entry);
+  return entry;
+}
+
+function markPhoneReady(personId, phone) {
+  const entry = { status: 'ready', phone, requestedAt: Date.now() };
+  phoneRequests.set(personId, entry);
+  return entry;
+}
+
+// Busca recursivamente objetos con forma { id, phone_numbers: [...] } dentro del payload
+// del webhook, ya que Apollo no documenta públicamente un esquema fijo para esta entrega.
+function extractPhoneEntries(payload, seen = new Set()) {
+  const entries = [];
+  const visit = (node) => {
+    if (!node || typeof node !== 'object' || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (typeof node.id === 'string' && Array.isArray(node.phone_numbers)) {
+      entries.push({ id: node.id, phone_numbers: node.phone_numbers });
+    }
+    Object.values(node).forEach(visit);
+  };
+  visit(payload);
+  return entries;
+}
+
 // endpointPath: ruta de Apollo. query: parámetros que van en la URL (Apollo los exige así
 // para /people/match, incluyendo los flags reveal_personal_emails/reveal_phone_number).
 // body: cuerpo JSON, usado por los endpoints de búsqueda (organizations/search, mixed_people/api_search).
@@ -178,19 +226,28 @@ app.post('/api/search', async (req, res) => {
         );
       }
 
-      const phone =
+      const syncPhone =
         enriched.phone_numbers?.[0]?.sanitized_number ||
         enriched.phone_numbers?.[0]?.raw_number ||
         null;
+
+      // Si Apollo ya lo devolvió en la misma respuesta (o llegó por webhook de una
+      // búsqueda anterior de esta misma persona), lo damos por listo de una vez;
+      // si no, queda "pending" y el frontend lo consulta en /api/phone/:id.
+      const phoneEntry = syncPhone
+        ? markPhoneReady(candidate.id, syncPhone)
+        : markPhonePending(candidate.id);
 
       const email =
         enriched.email && !enriched.email.includes('not_unlocked') ? enriched.email : null;
 
       contacts.push({
+        personId: candidate.id,
         name: contactName(enriched),
         title: enriched.title || null,
         email,
-        phone,
+        phone: phoneEntry.phone,
+        phoneStatus: phoneEntry.status,
         linkedin_url: enriched.linkedin_url || null,
       });
     }
@@ -212,12 +269,33 @@ app.post('/api/search', async (req, res) => {
 });
 
 // Apollo entrega los teléfonos revelados aquí de forma asíncrona (ver comentario junto a
-// webhook_url más arriba). Por ahora solo lo registramos en el log de depuración; si en el
-// futuro se quiere mostrar el teléfono sin tener que repetir la búsqueda, este es el lugar
-// donde habría que guardarlo (ej. en una base de datos) y exponerlo al frontend.
+// webhook_url más arriba). Guardamos el resultado en memoria (phoneRequests) para que el
+// frontend lo recoja haciendo polling a GET /api/phone/:personId.
 app.post('/api/apollo-webhook', (req, res) => {
   debugLog('webhook de Apollo recibido (revelación de teléfono)', req.body);
+
+  const entries = extractPhoneEntries(req.body);
+  for (const entry of entries) {
+    const phone = entry.phone_numbers[0]?.sanitized_number || entry.phone_numbers[0]?.raw_number || null;
+    const status = phone ? 'ready' : 'unavailable';
+    phoneRequests.set(entry.id, { status, phone, requestedAt: Date.now() });
+    debugLog(`teléfono actualizado para ${entry.id}`, phoneRequests.get(entry.id));
+  }
+
+  if (!entries.length) {
+    debugLog('no se encontraron entradas con id + phone_numbers en el payload del webhook', null);
+  }
+
   res.status(200).json({ received: true });
+});
+
+// El frontend consulta esto cada pocos segundos mientras un contacto está "Cargando teléfono...".
+app.get('/api/phone/:personId', (req, res) => {
+  const entry = phoneRequests.get(req.params.personId);
+  if (!entry) {
+    return res.json({ status: 'unavailable', phone: null });
+  }
+  res.json({ status: entry.status, phone: entry.phone });
 });
 
 const PORT = process.env.PORT || 3000;

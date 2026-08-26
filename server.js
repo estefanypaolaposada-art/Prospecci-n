@@ -49,6 +49,9 @@ function contactName(person) {
   return person.name || [person.first_name, person.last_name].filter(Boolean).join(' ') || null;
 }
 
+// Cuántos contactos como máximo devolvemos (cada uno consume un enriquecimiento/crédito de Apollo)
+const MAX_RESULTS = 8;
+
 async function apolloFetch(endpointPath, body) {
   const response = await fetch(`${APOLLO_BASE_URL}${endpointPath}`, {
     method: 'POST',
@@ -109,7 +112,7 @@ app.post('/api/search', async (req, res) => {
       organization_ids: [organization.id],
       person_titles: TARGET_TITLES,
       page: 1,
-      per_page: 25,
+      per_page: 50,
     });
 
     debugLog('respuesta cruda de /mixed_people/api_search', peopleData);
@@ -127,49 +130,55 @@ app.post('/api/search', async (req, res) => {
       });
     }
 
-    const best = ranked[0].person;
-    debugLog('mejor contacto encontrado en la búsqueda', best);
+    const candidates = ranked.slice(0, MAX_RESULTS).map((entry) => entry.person);
 
-    // 3. Enriquecer el mejor contacto para revelar email/teléfono (consume créditos de Apollo)
-    let enriched = best;
-    try {
-      const matchData = await apolloFetch('/people/match', {
-        id: best.id,
-        first_name: best.first_name,
-        last_name: best.last_name,
-        organization_name: organization.name,
-        reveal_personal_emails: true,
-        reveal_phone_number: true,
+    // 3. Enriquecer cada candidato para revelar email/teléfono (consume créditos de Apollo por cada uno)
+    const contacts = [];
+    for (const candidate of candidates) {
+      let enriched = candidate;
+      try {
+        const matchData = await apolloFetch('/people/match', {
+          id: candidate.id,
+          first_name: candidate.first_name,
+          last_name: candidate.last_name,
+          organization_name: organization.name,
+          reveal_personal_emails: true,
+          reveal_phone_number: true,
+        });
+        debugLog(`respuesta cruda de /people/match para ${candidate.id}`, matchData);
+        if (matchData.person) enriched = matchData.person;
+      } catch (enrichErr) {
+        console.warn(
+          `No se pudo enriquecer el contacto ${candidate.id}, se usan los datos de la búsqueda:`,
+          enrichErr.message
+        );
+      }
+
+      const phone =
+        enriched.phone_numbers?.[0]?.sanitized_number ||
+        enriched.phone_numbers?.[0]?.raw_number ||
+        null;
+
+      const email =
+        enriched.email && !enriched.email.includes('not_unlocked') ? enriched.email : null;
+
+      contacts.push({
+        name: contactName(enriched),
+        title: enriched.title || null,
+        email,
+        phone,
+        linkedin_url: enriched.linkedin_url || null,
       });
-      debugLog('respuesta cruda de /people/match', matchData);
-      if (matchData.person) enriched = matchData.person;
-    } catch (enrichErr) {
-      console.warn('No se pudo enriquecer el contacto, se usan los datos de la búsqueda:', enrichErr.message);
     }
 
-    const phone =
-      enriched.phone_numbers?.[0]?.sanitized_number ||
-      enriched.phone_numbers?.[0]?.raw_number ||
-      null;
-
-    const email =
-      enriched.email && !enriched.email.includes('not_unlocked') ? enriched.email : null;
-
-    const contact = {
-      name: contactName(enriched),
-      title: enriched.title || null,
-      email,
-      phone,
-      linkedin_url: enriched.linkedin_url || null,
-    };
-    debugLog('contacto final devuelto al frontend', contact);
+    debugLog('contactos finales devueltos al frontend', contacts);
 
     return res.json({
       organization: {
         name: organization.name,
         website_url: organization.website_url,
       },
-      contact,
+      contacts,
     });
   } catch (err) {
     console.error('Error consultando Apollo:', err.message);

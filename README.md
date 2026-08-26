@@ -1,9 +1,9 @@
 # Buscador de contacto ideal (Apollo.io)
 
 App web sencilla: ingresas el nombre de una empresa y el backend consulta la API
-de [Apollo.io](https://apollo.io) para devolver el mejor contacto para llamar,
+de [Apollo.io](https://apollo.io) para devolver los mejores contactos para llamar,
 priorizando cargos de **ventas, trade marketing, mercadeo, marketing o category
-manager** (nombre, cargo, teléfono y/o email).
+manager** (nombre completo, cargo, teléfono y/o email).
 
 ## Cómo funciona
 
@@ -12,8 +12,11 @@ manager** (nombre, cargo, teléfono y/o email).
 3. Busca personas de esa organización cuyo cargo coincida con ventas, trade
    marketing, mercadeo, marketing o category manager (`/mixed_people/api_search`).
 4. Ordena los resultados por relevancia de cargo y seniority (director/gerente/etc.)
-   y enriquece al mejor candidato (`/people/match`) para revelar email y teléfono.
-5. Devuelve nombre, cargo, teléfono y email al frontend.
+   y toma hasta `MAX_RESULTS` candidatos (8 por defecto, configurable en
+   `server.js`).
+5. Enriquece cada uno de esos candidatos (`/people/match`) para revelar email y
+   teléfono, y devuelve la lista completa al frontend, ordenada del contacto
+   más relevante al menos relevante.
 
 La API key de Apollo **nunca se expone al navegador**: solo vive en el backend,
 leída desde la variable de entorno `APOLLO_API_KEY`.
@@ -61,9 +64,17 @@ panel del servicio, con la clave `APOLLO_API_KEY`.
 
 - Las búsquedas y el enriquecimiento de contactos (`/people/match` con
   `reveal_personal_emails` y `reveal_phone_number`) consumen créditos de tu
-  plan de Apollo.
-- No todos los contactos tienen teléfono o email disponibles en la base de
-  Apollo; en ese caso la app muestra "No disponible" en ese campo.
+  plan de Apollo. **Cada búsqueda ahora enriquece hasta `MAX_RESULTS`
+  contactos (8 por defecto)**, así que consume más créditos que antes (cuando
+  solo se enriquecía uno). Baja esa constante en `server.js` si quieres
+  ahorrar créditos.
+- No todos los contactos tienen teléfono, email o apellido disponibles en la
+  base de Apollo; en ese caso la app muestra "No disponible" en ese campo. Si
+  ves esto de forma consistente en todos los contactos, puede deberse a que
+  tu plan/API key de Apollo no tiene habilitada la opción de revelar emails
+  personales o teléfonos móviles (revísalo en Apollo, en **Settings → API**
+  o con tu administrador de cuenta), o a que se agotaron los créditos de
+  enriquecimiento del plan.
 - Los cargos objetivo se buscan en español e inglés (`ventas`, `sales`,
   `marketing`, `mercadeo`, `trade marketing`, `category manager`) y Apollo
   hace un match flexible sobre el título del contacto.

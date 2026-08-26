@@ -100,8 +100,12 @@ button:hover:not(:disabled) {
 .card .org-website {
   color: var(--muted);
   font-size: 0.85rem;
-  margin-bottom: 16px;
   display: block;
+}
+
+.org-card {
+  border-left: 3px solid var(--accent);
+  padding: 16px 20px;
 }
 
 .contact-field {

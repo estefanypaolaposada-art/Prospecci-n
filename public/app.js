@@ -12,7 +12,7 @@ function renderError(message) {
 }
 
 function renderResult(data) {
-  const { organization, contact } = data;
+  const { organization, contacts } = data;
 
   const field = (label, value) =>
     `<div class="contact-field">
@@ -20,16 +20,33 @@ function renderResult(data) {
        <span class="value ${value ? '' : 'missing'}">${value ? escapeHtml(value) : 'No disponible'}</span>
      </div>`;
 
+  const orgHeader = `
+    <div class="org-name">${escapeHtml(organization.name)}</div>
+    ${organization.website_url ? `<span class="org-website">${escapeHtml(organization.website_url)}</span>` : ''}
+  `;
+
+  if (!contacts || !contacts.length) {
+    resultArea.innerHTML = `<div class="card">${orgHeader}<p class="loading">No se encontraron contactos.</p></div>`;
+    return;
+  }
+
+  const contactCards = contacts
+    .map(
+      (contact) => `
+        <div class="card">
+          ${field('Nombre', contact.name)}
+          ${field('Cargo', contact.title)}
+          ${field('Teléfono', contact.phone)}
+          ${field('Email', contact.email)}
+          ${contact.linkedin_url ? field('LinkedIn', contact.linkedin_url) : ''}
+        </div>
+      `
+    )
+    .join('');
+
   resultArea.innerHTML = `
-    <div class="card">
-      <div class="org-name">${escapeHtml(organization.name)}</div>
-      ${organization.website_url ? `<span class="org-website">${escapeHtml(organization.website_url)}</span>` : ''}
-      ${field('Nombre', contact.name)}
-      ${field('Cargo', contact.title)}
-      ${field('Teléfono', contact.phone)}
-      ${field('Email', contact.email)}
-      ${contact.linkedin_url ? field('LinkedIn', contact.linkedin_url) : ''}
-    </div>
+    <div class="card org-card">${orgHeader}</div>
+    ${contactCards}
   `;
 }
 

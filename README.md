@@ -94,8 +94,12 @@ panel del servicio, con la clave `APOLLO_API_KEY`.
      servidor lo guarda en memoria (`Map` en `server.js`, se pierde si el
      servidor se reinicia) y la próxima consulta de polling lo devuelve; la
      tarjeta se actualiza sola, sin recargar la página.
-  4. Si pasan los 5 minutos sin respuesta (o Apollo confirma que no hay
-     teléfono), la tarjeta cambia a "No disponible".
+  4. Si pasan los 5 minutos sin recibir un número, la tarjeta cambia a "No
+     disponible". Una entrega del webhook sin número **no** se toma como
+     definitiva (Apollo puede mandar más de una entrega para la misma
+     persona, por ejemplo un aviso intermedio antes del resultado final del
+     waterfall); solo se marca "listo" cuando llega un número real, para no
+     perder el dato si llega en una entrega posterior.
   Como Apollo no publica un esquema fijo para el payload del webhook, el
   backend lo recorre buscando cualquier objeto con forma
   `{ id, phone_numbers: [...] }`. Para confirmar que todo está funcionando,

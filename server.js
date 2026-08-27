@@ -205,6 +205,7 @@ app.post('/api/search', async (req, res) => {
     // y para revelar el teléfono además exige una webhook_url pública donde lo entrega de forma
     // asíncrona (puede tardar); por eso el teléfono normalmente no viene en esta misma respuesta.
     const webhookUrl = `${req.protocol}://${req.get('host')}/api/apollo-webhook`;
+    console.log(`[apollo] solicitando teléfono para ids=[${candidates.map((c) => c.id).join(', ')}]`);
 
     // 3. Enriquecer cada candidato para revelar email/teléfono (consume créditos de Apollo por cada uno)
     const contacts = [];
@@ -289,8 +290,18 @@ app.post('/api/apollo-webhook', (req, res) => {
 
   for (const entry of entries) {
     const phone = entry.phone_numbers[0]?.sanitized_number || entry.phone_numbers[0]?.raw_number || null;
-    const status = phone ? 'ready' : 'unavailable';
-    phoneRequests.set(entry.id, { status, phone, requestedAt: Date.now() });
+
+    // Si esta entrega no trae número, NO lo marcamos como "unavailable" todavía: Apollo puede
+    // mandar más de una entrega para la misma persona (por ejemplo un aviso intermedio antes
+    // del resultado final del waterfall), y si diéramos por terminado el polling aquí, el
+    // frontend dejaría de consultar y se perdería el número real si llega después. Lo dejamos
+    // "pending" y que decida el timeout de 5 minutos del frontend si de verdad no hay teléfono.
+    if (!phone) {
+      debugLog(`webhook para ${entry.id} llegó sin número (se ignora, sigue pendiente)`, entry);
+      continue;
+    }
+
+    phoneRequests.set(entry.id, { status: 'ready', phone, requestedAt: Date.now() });
     debugLog(`teléfono actualizado para ${entry.id}`, phoneRequests.get(entry.id));
   }
 

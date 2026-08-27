@@ -3,11 +3,11 @@ const input = document.getElementById('company-input');
 const button = document.getElementById('search-button');
 const resultArea = document.getElementById('result-area');
 
-// Cada consulta a /api/phone/:id vuelve a preguntarle a Apollo (ver server.js), así que no
-// conviene sondear demasiado seguido. Apollo documenta que el teléfono puede tardar "varios
-// minutos" en resolverse, así que esperamos hasta 3 minutos (22 intentos x 8s).
-const PHONE_POLL_INTERVAL_MS = 8000;
-const PHONE_POLL_MAX_ATTEMPTS = 22;
+// Cada consulta a /api/phone/:id vuelve a preguntarle a Apollo (ver server.js). Apollo
+// documenta que el teléfono puede tardar "varios minutos" en resolverse, así que seguimos
+// esperando hasta 3 minutos, pero consultando cada 4s para que se vea apenas esté listo.
+const PHONE_POLL_INTERVAL_MS = 4000;
+const PHONE_POLL_MAX_ATTEMPTS = 45;
 
 let activePhonePolls = [];
 
@@ -29,9 +29,12 @@ function renderError(message) {
 function phoneFieldHtml(contact) {
   if (contact.phoneStatus === 'pending') {
     return `
-      <div class="contact-field">
+      <div class="contact-field contact-field-phone-pending">
         <span class="label">Teléfono</span>
-        <span class="value loading-phone" id="phone-value-${escapeHtml(contact.personId)}">Cargando teléfono...</span>
+        <span class="value-group">
+          <span class="value loading-phone" id="phone-value-${escapeHtml(contact.personId)}">Cargando teléfono...</span>
+          <span class="hint" id="phone-hint-${escapeHtml(contact.personId)}">Apollo puede tardar hasta 3 min en confirmarlo</span>
+        </span>
       </div>
     `;
   }
@@ -92,6 +95,18 @@ function renderResult(data) {
     .forEach((contact) => pollPhone(contact.personId));
 }
 
+function resolvePhoneField(personId, { text, missing }) {
+  const valueEl = document.getElementById(`phone-value-${personId}`);
+  if (!valueEl) return;
+
+  valueEl.textContent = text;
+  valueEl.classList.remove('loading-phone', 'missing');
+  if (missing) valueEl.classList.add('missing');
+
+  const hintEl = document.getElementById(`phone-hint-${personId}`);
+  if (hintEl) hintEl.remove();
+}
+
 function pollPhone(personId) {
   let attempts = 0;
 
@@ -110,16 +125,13 @@ function pollPhone(personId) {
       const data = await response.json();
 
       if (data.status === 'ready' && data.phone) {
-        valueEl.textContent = data.phone;
-        valueEl.classList.remove('loading-phone', 'missing');
+        resolvePhoneField(personId, { text: data.phone, missing: false });
         clearInterval(intervalId);
         return;
       }
 
       if (data.status === 'unavailable') {
-        valueEl.textContent = 'No disponible';
-        valueEl.classList.remove('loading-phone');
-        valueEl.classList.add('missing');
+        resolvePhoneField(personId, { text: 'No disponible', missing: true });
         clearInterval(intervalId);
         return;
       }
@@ -128,9 +140,7 @@ function pollPhone(personId) {
     }
 
     if (attempts >= PHONE_POLL_MAX_ATTEMPTS) {
-      valueEl.textContent = 'No disponible';
-      valueEl.classList.remove('loading-phone');
-      valueEl.classList.add('missing');
+      resolvePhoneField(personId, { text: 'No disponible', missing: true });
       clearInterval(intervalId);
     }
   }, PHONE_POLL_INTERVAL_MS);

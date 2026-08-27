@@ -114,16 +114,24 @@ tiene el auto-deploy desde GitHub habilitado).
      cargo, email) y dispara la revelación del teléfono en Apollo. Si el
      teléfono aún no llegó, cada contacto trae `phoneStatus: "pending"` y el
      frontend muestra "Cargando teléfono..." con una animación.
-  2. El navegador consulta `GET /api/phone/:personId` cada 8 segundos, hasta
-     por 3 minutos, para cada contacto pendiente.
+  2. El navegador consulta `GET /api/phone/:personId` cada 4 segundos, hasta
+     por 3 minutos, para cada contacto pendiente. Mientras espera, la
+     tarjeta muestra una nota ("Apollo puede tardar hasta 3 min en
+     confirmarlo") para que quede claro que sigue trabajando y no que se
+     colgó.
   3. Esa consulta hace dos cosas: mira si por casualidad el webhook ya
      actualizó el `Map` en memoria de esta misma instancia del servidor, y
      además **vuelve a preguntarle directamente a Apollo** (`/people/match`
      solo con el `id`, sin volver a pedir revelación) si el teléfono ya está
      visible. En cuanto cualquiera de las dos vías lo confirma, la tarjeta se
-     actualiza sola, sin recargar la página.
+     actualiza sola (número o "No disponible"), sin recargar la página.
   4. Si pasan los 3 minutos sin recibir un número, la tarjeta cambia a "No
      disponible".
+  Ten en cuenta que, al reconsultar Apollo cada 4 segundos por hasta 3
+  minutos y por cada contacto pendiente, una búsqueda con varios contactos
+  sin teléfono inmediato puede generar bastantes llamadas a la API de
+  Apollo; si tu plan tiene límite de requests por minuto, considera subir
+  `PHONE_POLL_INTERVAL_MS` en `public/app.js`.
   Para confirmar que todo está funcionando, el servidor imprime **siempre**
   (sin necesidad de `APOLLO_DEBUG`) líneas de log sin datos personales:
   cuántos `phone_numbers` trae la respuesta síncrona de `/people/match` al

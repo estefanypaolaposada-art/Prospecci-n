@@ -3,10 +3,11 @@ const input = document.getElementById('company-input');
 const button = document.getElementById('search-button');
 const resultArea = document.getElementById('result-area');
 
-// Apollo documenta que el teléfono puede tardar "varios minutos" en llegar por webhook,
-// así que esperamos hasta 5 minutos (60 intentos x 5s) antes de rendirnos.
-const PHONE_POLL_INTERVAL_MS = 5000;
-const PHONE_POLL_MAX_ATTEMPTS = 60;
+// Cada consulta a /api/phone/:id vuelve a preguntarle a Apollo (ver server.js), así que no
+// conviene sondear demasiado seguido. Apollo documenta que el teléfono puede tardar "varios
+// minutos" en resolverse, así que esperamos hasta 3 minutos (22 intentos x 8s).
+const PHONE_POLL_INTERVAL_MS = 8000;
+const PHONE_POLL_MAX_ATTEMPTS = 22;
 
 let activePhonePolls = [];
 

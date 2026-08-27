@@ -57,8 +57,34 @@ leída desde la variable de entorno `APOLLO_API_KEY`.
 
 No subas nunca la API key al código ni al repositorio. En su lugar, configúrala
 como variable de entorno en la plataforma donde despliegues (Render, Railway,
-Fly.io, Heroku, etc.), normalmente en una sección "Environment Variables" del
-panel del servicio, con la clave `APOLLO_API_KEY`.
+Fly.io, Heroku, Vercel, etc.), normalmente en una sección "Environment
+Variables" del panel del servicio, con la clave `APOLLO_API_KEY`.
+
+### Despliegue en Vercel
+
+Este repo incluye `vercel.json` para que Vercel ejecute `server.js` como
+función serverless (Express exportado con `module.exports = app`) y le pase
+todas las rutas, incluyendo los archivos estáticos de `public/`.
+
+**Importante sobre Vercel y estado en memoria:** Vercel ejecuta el backend
+como funciones serverless — cada request puede caer en una instancia distinta
+del servidor, sin memoria compartida entre ellas. Por eso el `Map` en memoria
+que usa la app para el teléfono (`phoneRequests`) NO es confiable como única
+fuente de verdad ahí: se usa solo como atajo cuando por casualidad una
+petición cae en la misma instancia; la fuente real es que `GET
+/api/phone/:personId` vuelve a preguntarle directamente a Apollo en cada
+consulta si el teléfono ya está disponible (ver más abajo). Si en el futuro
+quieres evitar esas consultas repetidas a Apollo, la solución correcta sería
+usar un almacenamiento compartido de verdad (por ejemplo Vercel KV / Upstash
+Redis) en vez del `Map`.
+
+**Para confirmar que un deploy en Vercel sí tiene el último código:** abre
+`https://tu-dominio.vercel.app/api/version` — devuelve el commit de Git que
+está corriendo (`VERCEL_GIT_COMMIT_SHA`, que Vercel llena automáticamente).
+Compáralo con el último commit de la rama `main` en GitHub; si no coincide,
+el deploy no se actualizó (entra al dashboard de Vercel → pestaña
+Deployments y fuerza un redeploy del último commit, o revisa si el proyecto
+tiene el auto-deploy desde GitHub habilitado).
 
 ## Notas sobre la API de Apollo
 
@@ -79,39 +105,30 @@ panel del servicio, con la clave `APOLLO_API_KEY`.
   aplicado para que `reveal_personal_emails` y `reveal_phone_number` sí
   surtan efecto.
 - **El teléfono se revela de forma asíncrona, y la app ya lo maneja
-  automáticamente.** Apollo exige un `webhook_url` público para
-  `reveal_phone_number=true`, y entrega el teléfono en una llamada aparte a
-  ese webhook (puede tardar desde segundos hasta varios minutos), no en la
-  respuesta del `POST /api/search`. El flujo completo es:
+  automáticamente sin depender de memoria compartida entre requests**
+  (importante en hosting serverless como Vercel, ver arriba). Apollo exige un
+  `webhook_url` público para `reveal_phone_number=true`, y normalmente
+  entrega el teléfono en una llamada aparte a ese webhook, no en la respuesta
+  del `POST /api/search`. El flujo completo es:
   1. `POST /api/search` responde de inmediato con lo que ya tiene (nombre,
-     cargo, email). Si el teléfono aún no llegó, cada contacto trae
-     `phoneStatus: "pending"` y el frontend muestra "Cargando teléfono..."
-     con una animación.
-  2. El navegador consulta `GET /api/phone/:personId` cada 5 segundos, hasta
-     por 5 minutos, para cada contacto pendiente (Apollo documenta que la
-     entrega puede tardar "varios minutos").
-  3. Cuando Apollo llama a `POST /api/apollo-webhook` con el teléfono, el
-     servidor lo guarda en memoria (`Map` en `server.js`, se pierde si el
-     servidor se reinicia) y la próxima consulta de polling lo devuelve; la
-     tarjeta se actualiza sola, sin recargar la página.
-  4. Si pasan los 5 minutos sin recibir un número, la tarjeta cambia a "No
-     disponible". Una entrega del webhook sin número **no** se toma como
-     definitiva (Apollo puede mandar más de una entrega para la misma
-     persona, por ejemplo un aviso intermedio antes del resultado final del
-     waterfall); solo se marca "listo" cuando llega un número real, para no
-     perder el dato si llega en una entrega posterior.
-  Como Apollo no publica un esquema fijo para el payload del webhook, el
-  backend lo recorre buscando cualquier objeto con forma
-  `{ id, phone_numbers: [...] }`. Para confirmar que todo está funcionando,
-  el servidor imprime **siempre** (sin necesidad de `APOLLO_DEBUG`) dos
-  líneas de log sin datos personales: cuántos `phone_numbers` trae la
-  respuesta síncrona de `/people/match`, y cuántos contactos llegaron en
-  cada llamada a `/api/apollo-webhook`. Si ves "0 contacto(s)" en el segundo
-  log de forma consistente, Apollo no está logrando llamar a tu
-  `webhook_url` (revisa que la URL pública de tu despliegue sea alcanzable
-  desde internet); si ves contactos ahí pero el número nunca se muestra,
-  activa `APOLLO_DEBUG=true` para ver el payload completo y ajustar el
-  parser al formato real.
+     cargo, email) y dispara la revelación del teléfono en Apollo. Si el
+     teléfono aún no llegó, cada contacto trae `phoneStatus: "pending"` y el
+     frontend muestra "Cargando teléfono..." con una animación.
+  2. El navegador consulta `GET /api/phone/:personId` cada 8 segundos, hasta
+     por 3 minutos, para cada contacto pendiente.
+  3. Esa consulta hace dos cosas: mira si por casualidad el webhook ya
+     actualizó el `Map` en memoria de esta misma instancia del servidor, y
+     además **vuelve a preguntarle directamente a Apollo** (`/people/match`
+     solo con el `id`, sin volver a pedir revelación) si el teléfono ya está
+     visible. En cuanto cualquiera de las dos vías lo confirma, la tarjeta se
+     actualiza sola, sin recargar la página.
+  4. Si pasan los 3 minutos sin recibir un número, la tarjeta cambia a "No
+     disponible".
+  Para confirmar que todo está funcionando, el servidor imprime **siempre**
+  (sin necesidad de `APOLLO_DEBUG`) líneas de log sin datos personales:
+  cuántos `phone_numbers` trae la respuesta síncrona de `/people/match` al
+  pedir la revelación, cuántos trae cada reconsulta de `/api/phone/:id`, y
+  cuántos contactos llegan en cada llamada a `/api/apollo-webhook`.
 
 ## Depurar respuestas de Apollo
 

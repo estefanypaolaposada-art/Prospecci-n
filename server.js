@@ -313,15 +313,66 @@ app.post('/api/apollo-webhook', (req, res) => {
 });
 
 // El frontend consulta esto cada pocos segundos mientras un contacto está "Cargando teléfono...".
-app.get('/api/phone/:personId', (req, res) => {
-  const entry = phoneRequests.get(req.params.personId);
-  if (!entry) {
+//
+// IMPORTANTE: en un hosting serverless (Vercel y similares) cada request puede caer en una
+// instancia distinta del servidor, sin memoria compartida entre ellas. Por eso NO podemos
+// confiar solo en el Map en memoria (phoneRequests) para enterarnos de lo que llegó al
+// webhook en otra instancia: aquí lo usamos como atajo (por si esta petición cae, por
+// casualidad, en la misma instancia que recibió el webhook), pero la fuente de verdad real
+// es volver a preguntarle directamente a Apollo si el teléfono ya está disponible.
+app.get('/api/phone/:personId', async (req, res) => {
+  const personId = req.params.personId;
+
+  const cached = phoneRequests.get(personId);
+  if (cached?.status === 'ready') {
+    return res.json({ status: 'ready', phone: cached.phone });
+  }
+
+  if (!APOLLO_API_KEY) {
     return res.json({ status: 'unavailable', phone: null });
   }
-  res.json({ status: entry.status, phone: entry.phone });
+
+  try {
+    // Sin reveal_phone_number/webhook_url aquí a propósito: no queremos relanzar el proceso
+    // asíncrono de Apollo en cada consulta (podría gastar créditos o disparar el waterfall
+    // una y otra vez); solo preguntamos si el número ya quedó visible desde la revelación
+    // que se pidió en /api/search.
+    const matchData = await apolloFetch('/people/match', { query: { id: personId } });
+    const person = matchData.person || {};
+    const phone = person.phone_numbers?.[0]?.sanitized_number || person.phone_numbers?.[0]?.raw_number || null;
+
+    console.log(`[apollo] poll ${personId}: phone_numbers al reconsultar = ${person.phone_numbers?.length ?? 0}`);
+
+    if (phone) {
+      phoneRequests.set(personId, { status: 'ready', phone, requestedAt: Date.now() });
+      return res.json({ status: 'ready', phone });
+    }
+
+    return res.json({ status: 'pending', phone: null });
+  } catch (err) {
+    console.warn(`No se pudo reconsultar el teléfono de ${personId}:`, err.message);
+    return res.json({ status: 'pending', phone: null });
+  }
+});
+
+// Para confirmar rápido qué versión del código está corriendo en producción
+// (útil en Vercel, donde a veces no es obvio si un deploy realmente tomó el último commit).
+app.get('/api/version', (req, res) => {
+  res.json({
+    commit: process.env.VERCEL_GIT_COMMIT_SHA || null,
+    deployment: process.env.VERCEL_DEPLOYMENT_ID || null,
+    env: process.env.VERCEL_ENV || 'local',
+  });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Servidor escuchando en http://localhost:${PORT}`);
-});
+// En Vercel el módulo se importa y se usa app como handler serverless (ver vercel.json);
+// app.listen solo debe correr cuando ejecutamos el servidor nosotros mismos (local o en un
+// hosting tradicional tipo Render/Railway).
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;

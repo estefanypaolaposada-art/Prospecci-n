@@ -3,11 +3,12 @@ const input = document.getElementById('company-input');
 const button = document.getElementById('search-button');
 const resultArea = document.getElementById('result-area');
 
-// Cada consulta a /api/phone/:id vuelve a preguntarle a Apollo (ver server.js). Apollo
-// documenta que el teléfono puede tardar "varios minutos" en resolverse, así que seguimos
-// esperando hasta 3 minutos, pero consultando cada 4s para que se vea apenas esté listo.
+// Cada consulta a /api/phone/:id vuelve a preguntarle a Apollo (ver server.js). En la
+// práctica, si Apollo tiene el número lo confirma en los primeros segundos; si no lo tiene,
+// esperar varios minutos solo deja la tarjeta "cargando" sin necesidad. Por eso esperamos
+// solo 30s (8 intentos x 4s) antes de mostrar "No disponible".
 const PHONE_POLL_INTERVAL_MS = 4000;
-const PHONE_POLL_MAX_ATTEMPTS = 45;
+const PHONE_POLL_MAX_ATTEMPTS = 8;
 
 let activePhonePolls = [];
 
@@ -33,7 +34,7 @@ function phoneFieldHtml(contact) {
         <span class="label">Teléfono</span>
         <span class="value-group">
           <span class="value loading-phone" id="phone-value-${escapeHtml(contact.personId)}">Cargando teléfono...</span>
-          <span class="hint" id="phone-hint-${escapeHtml(contact.personId)}">Apollo puede tardar hasta 3 min en confirmarlo</span>
+          <span class="hint" id="phone-hint-${escapeHtml(contact.personId)}">Confirmando con Apollo...</span>
         </span>
       </div>
     `;

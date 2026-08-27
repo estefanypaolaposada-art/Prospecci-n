@@ -11,18 +11,22 @@
     <h1>Buscador de contactos ideales</h1>
     <p class="subtitle">
       Ingresa el nombre de una empresa y te mostramos los mejores contactos para
-      llamar (ventas, trade marketing, mercadeo, marketing o category manager).
+      llamar (ventas, trade marketing, mercadeo, marketing, category manager o
+      gerente general).
     </p>
 
     <form id="search-form">
-      <input
-        type="text"
-        id="company-input"
-        name="company"
-        placeholder="Ej: Nestlé, Alpina, Grupo Éxito..."
-        autocomplete="off"
-        required
-      />
+      <div class="search-input-wrap">
+        <input
+          type="text"
+          id="company-input"
+          name="company"
+          placeholder="Ej: Nestlé, Alpina, Grupo Éxito..."
+          autocomplete="off"
+          required
+        />
+        <ul id="suggestions-list" class="suggestions" hidden></ul>
+      </div>
       <button type="submit" id="search-button">Buscar contactos</button>
     </form>
 

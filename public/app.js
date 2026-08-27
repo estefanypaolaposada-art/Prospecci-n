@@ -2,6 +2,16 @@ const form = document.getElementById('search-form');
 const input = document.getElementById('company-input');
 const button = document.getElementById('search-button');
 const resultArea = document.getElementById('result-area');
+const suggestionsList = document.getElementById('suggestions-list');
+
+const SUGGEST_DEBOUNCE_MS = 250;
+const SUGGEST_MIN_CHARS = 2;
+
+let selectedOrganizationId = null;
+let suggestDebounceTimer = null;
+let suggestAbortController = null;
+let currentSuggestions = [];
+let activeSuggestionIndex = -1;
 
 // Cada consulta a /api/phone/:id vuelve a preguntarle a Apollo (ver server.js). En la
 // práctica, si Apollo tiene el número lo confirma en los primeros segundos; si no lo tiene,
@@ -155,8 +165,143 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
+function hideSuggestions() {
+  suggestionsList.hidden = true;
+  suggestionsList.innerHTML = '';
+  currentSuggestions = [];
+  activeSuggestionIndex = -1;
+}
+
+function setActiveSuggestion(index) {
+  const items = suggestionsList.querySelectorAll('.suggestion-item');
+  items.forEach((item, i) => item.classList.toggle('active', i === index));
+  activeSuggestionIndex = index;
+}
+
+function selectSuggestion(org) {
+  input.value = org.name;
+  selectedOrganizationId = org.id;
+  hideSuggestions();
+  form.requestSubmit();
+}
+
+function renderSuggestions(organizations) {
+  currentSuggestions = organizations;
+  activeSuggestionIndex = -1;
+  suggestionsList.innerHTML = '';
+
+  if (!organizations.length) {
+    hideSuggestions();
+    return;
+  }
+
+  organizations.forEach((org) => {
+    const li = document.createElement('li');
+    li.className = 'suggestion-item';
+
+    if (org.logoUrl) {
+      const img = document.createElement('img');
+      img.className = 'suggestion-logo';
+      img.src = org.logoUrl;
+      img.alt = '';
+      img.addEventListener('error', () => {
+        img.replaceWith(logoFallback(org.name));
+      });
+      li.appendChild(img);
+    } else {
+      li.appendChild(logoFallback(org.name));
+    }
+
+    const textWrap = document.createElement('div');
+    textWrap.className = 'suggestion-text';
+
+    const nameEl = document.createElement('div');
+    nameEl.className = 'suggestion-name';
+    nameEl.textContent = org.name;
+    textWrap.appendChild(nameEl);
+
+    if (org.websiteUrl) {
+      const websiteEl = document.createElement('div');
+      websiteEl.className = 'suggestion-website';
+      websiteEl.textContent = org.websiteUrl;
+      textWrap.appendChild(websiteEl);
+    }
+
+    li.appendChild(textWrap);
+    li.addEventListener('mousedown', (event) => {
+      // mousedown (no click) para que dispare antes del blur del input.
+      event.preventDefault();
+      selectSuggestion(org);
+    });
+
+    suggestionsList.appendChild(li);
+  });
+
+  suggestionsList.hidden = false;
+}
+
+function logoFallback(name) {
+  const div = document.createElement('div');
+  div.className = 'suggestion-logo-fallback';
+  div.textContent = (name || '?').trim().charAt(0).toUpperCase();
+  return div;
+}
+
+async function fetchSuggestions(query) {
+  if (suggestAbortController) suggestAbortController.abort();
+  suggestAbortController = new AbortController();
+
+  try {
+    const response = await fetch(`/api/organizations/suggest?q=${encodeURIComponent(query)}`, {
+      signal: suggestAbortController.signal,
+    });
+    const data = await response.json();
+    // El texto pudo cambiar mientras esperábamos la respuesta; no pisar lo que el usuario ya escribió después.
+    if (input.value.trim() === query) {
+      renderSuggestions(data.organizations || []);
+    }
+  } catch (err) {
+    if (err.name !== 'AbortError') hideSuggestions();
+  }
+}
+
+input.addEventListener('input', () => {
+  selectedOrganizationId = null;
+  const query = input.value.trim();
+
+  clearTimeout(suggestDebounceTimer);
+  if (query.length < SUGGEST_MIN_CHARS) {
+    hideSuggestions();
+    return;
+  }
+
+  suggestDebounceTimer = setTimeout(() => fetchSuggestions(query), SUGGEST_DEBOUNCE_MS);
+});
+
+input.addEventListener('keydown', (event) => {
+  if (suggestionsList.hidden || !currentSuggestions.length) return;
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    setActiveSuggestion((activeSuggestionIndex + 1) % currentSuggestions.length);
+  } else if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    setActiveSuggestion((activeSuggestionIndex - 1 + currentSuggestions.length) % currentSuggestions.length);
+  } else if (event.key === 'Enter' && activeSuggestionIndex >= 0) {
+    event.preventDefault();
+    selectSuggestion(currentSuggestions[activeSuggestionIndex]);
+  } else if (event.key === 'Escape') {
+    hideSuggestions();
+  }
+});
+
+document.addEventListener('click', (event) => {
+  if (!event.target.closest('.search-input-wrap')) hideSuggestions();
+});
+
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
+  hideSuggestions();
   const company = input.value.trim();
   if (!company) return;
 
@@ -167,7 +312,7 @@ form.addEventListener('submit', async (event) => {
     const response = await fetch('/api/search', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company }),
+      body: JSON.stringify({ company, organizationId: selectedOrganizationId || undefined }),
     });
 
     const data = await response.json();

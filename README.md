@@ -1,22 +1,34 @@
 # Buscador de contacto ideal (Apollo.io)
 
-App web sencilla: ingresas el nombre de una empresa y el backend consulta la API
-de [Apollo.io](https://apollo.io) para devolver los mejores contactos para llamar,
-priorizando cargos de **ventas, trade marketing, mercadeo, marketing o category
-manager** (nombre completo, cargo, teléfono y/o email).
+App web sencilla: ingresas el nombre de una empresa (con autocompletado tipo
+Apollo, mostrando el logo mientras escribes) y el backend consulta la API de
+[Apollo.io](https://apollo.io) para devolver los mejores contactos para
+llamar, priorizando cargos de **ventas, trade marketing, mercadeo, marketing,
+category manager o gerente general** (nombre completo, cargo, teléfono y/o
+email).
 
 ## Cómo funciona
 
-1. El frontend (`public/`) envía el nombre de la empresa a `POST /api/search`.
-2. El backend (`server.js`) busca la organización en Apollo (`/organizations/search`).
-3. Busca personas de esa organización cuyo cargo coincida con ventas, trade
-   marketing, mercadeo, marketing o category manager (`/mixed_people/api_search`).
-4. Ordena los resultados por relevancia de cargo y seniority (director/gerente/etc.)
-   y toma hasta `MAX_RESULTS` candidatos (8 por defecto, configurable en
-   `server.js`).
-5. Enriquece cada uno de esos candidatos (`/people/match`) para revelar email y
-   teléfono, y devuelve la lista completa al frontend, ordenada del contacto
-   más relevante al menos relevante.
+1. Mientras el usuario escribe el nombre de la empresa, el frontend consulta
+   `GET /api/organizations/suggest?q=...` (con debounce de 250ms) y muestra un
+   listado desplegable con el logo y el nombre de cada organización que
+   coincide, igual que el buscador de la propia interfaz de Apollo. Al elegir
+   una, se guarda su `organization_id` para usarlo en la búsqueda.
+2. Al enviar el formulario, el frontend envía el nombre (y el `organizationId`
+   si se eligió una sugerencia) a `POST /api/search`.
+3. El backend (`server.js`) busca la organización en Apollo
+   (`/organizations/search`); si viene un `organizationId`, se queda con esa
+   organización exacta entre los resultados (útil cuando hay varias empresas
+   con nombres parecidos).
+4. Busca personas de esa organización cuyo cargo coincida con ventas, trade
+   marketing, mercadeo, marketing, category manager o gerente general
+   (`/mixed_people/api_search`).
+5. Ordena los resultados por relevancia de cargo y seniority (director/gerente
+   general/gerente/etc.) y toma hasta `MAX_RESULTS` candidatos (8 por
+   defecto, configurable en `server.js`).
+6. Enriquece cada uno de esos candidatos (`/people/match`) para revelar email
+   y teléfono, y devuelve la lista completa al frontend, ordenada del
+   contacto más relevante al menos relevante.
 
 La API key de Apollo **nunca se expone al navegador**: solo vive en el backend,
 leída desde la variable de entorno `APOLLO_API_KEY`.

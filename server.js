@@ -13,11 +13,15 @@ const TARGET_TITLES = [
   'marketing',
   'ventas',
   'sales',
+  'gerente general',
+  'general manager',
 ];
 
-// Palabras que indican seniority, usadas para elegir el "mejor" contacto entre los que coinciden
+// Palabras que indican seniority, usadas para elegir el "mejor" contacto entre los que coinciden.
+// "gerente general" va en el nivel más alto (es la cabeza de la empresa, no un gerente de área),
+// por eso se revisa antes que el "gerente" genérico del segundo nivel.
 const SENIORITY_TIERS = [
-  { score: 50, keywords: ['chief', 'cmo', 'cco', 'vicepresidente', 'vice president', 'vp', 'director', 'head'] },
+  { score: 50, keywords: ['chief', 'cmo', 'cco', 'ceo', 'vicepresidente', 'vice president', 'vp', 'director', 'head', 'gerente general', 'general manager'] },
   { score: 30, keywords: ['gerente', 'manager', 'jefe'] },
   { score: 10, keywords: ['coordinador', 'coordinator', 'analista', 'analyst', 'representante', 'representative', 'ejecutivo', 'executive'] },
 ];
@@ -144,6 +148,34 @@ app.set('trust proxy', true);
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Autocompletado mientras el usuario escribe: sugiere organizaciones con nombre y logo,
+// igual que hace la propia interfaz de Apollo. Se llama en cada tecla (con debounce en el
+// frontend), así que no revela contactos ni consume créditos de enriquecimiento, solo busca.
+app.get('/api/organizations/suggest', async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q || q.length < 2 || !APOLLO_API_KEY) {
+    return res.json({ organizations: [] });
+  }
+
+  try {
+    const data = await apolloFetch('/organizations/search', {
+      body: { q_organization_name: q, page: 1, per_page: 6 },
+    });
+
+    const organizations = (data.organizations || []).map((org) => ({
+      id: org.id,
+      name: org.name,
+      logoUrl: org.logo_url || null,
+      websiteUrl: org.website_url || null,
+    }));
+
+    return res.json({ organizations });
+  } catch (err) {
+    console.warn('No se pudieron obtener sugerencias de organizaciones:', err.message);
+    return res.json({ organizations: [] });
+  }
+});
+
 app.post('/api/search', async (req, res) => {
   if (!APOLLO_API_KEY) {
     return res.status(500).json({
@@ -152,21 +184,28 @@ app.post('/api/search', async (req, res) => {
   }
 
   const companyName = (req.body?.company || '').trim();
+  const organizationId = (req.body?.organizationId || '').trim();
   if (!companyName) {
     return res.status(400).json({ error: 'Debes ingresar el nombre de una empresa.' });
   }
 
   try {
-    // 1. Buscar la organización por nombre
+    // 1. Buscar la organización por nombre. Si el usuario eligió una sugerencia del
+    // autocompletado, usamos organizationId para quedarnos con esa exacta (puede haber
+    // varias empresas con nombres parecidos) en vez de asumir que es la primera del listado.
     const orgData = await apolloFetch('/organizations/search', {
       body: {
         q_organization_name: companyName,
         page: 1,
-        per_page: 1,
+        per_page: organizationId ? 10 : 1,
       },
     });
 
-    const organization = orgData.organizations?.[0];
+    const organizations = orgData.organizations || [];
+    const organization = organizationId
+      ? organizations.find((o) => o.id === organizationId) || organizations[0]
+      : organizations[0];
+
     if (!organization) {
       return res.status(404).json({
         error: `No se encontró ninguna organización llamada "${companyName}" en Apollo.`,

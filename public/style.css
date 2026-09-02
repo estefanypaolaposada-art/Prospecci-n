@@ -31,37 +31,11 @@ body {
   max-width: 560px;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 28px;
-}
-
-.brand-mark {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 1.05rem;
-  color: #fff;
-  background: linear-gradient(135deg, var(--primary), var(--accent));
-  box-shadow: 0 4px 10px rgba(108, 92, 231, 0.35);
-}
-
-.brand-name {
-  font-weight: 700;
-  font-size: 1.15rem;
-  letter-spacing: -0.01em;
-}
-
 h1 {
   font-size: 1.85rem;
   line-height: 1.25;
   margin-bottom: 10px;
+  margin-top: 0;
 }
 
 h1 .highlight {
